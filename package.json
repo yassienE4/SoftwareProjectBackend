@@ -8,7 +8,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "prisma generate && prisma migrate status && ts-node-dev --respawn --transpile-only index.ts"
+    "dev": "prisma generate && prisma migrate status && tsx watch index.ts"
   },
   "repository": {
     "type": "git",
@@ -34,6 +34,7 @@
     "nodemon": "^3.1.11",
     "prisma": "^7.3.0",
     "ts-node-dev": "^2.0.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }
