@@ -1,11 +1,12 @@
-const express = require("express");
+import express, { Request, Response } from "express";
+
 const app = express();
 //const cors = require("cors");
 const PORT = 8080;
 
 // app.use(cors());
 
-app.get("/api/home", (req, res) => {
+app.get("/api/home", (req: Request, res: Response) => {
   res.json({ message: "Welcome to the Home API!" });
 });
 
