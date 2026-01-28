@@ -8,9 +8,18 @@ datasource db {
   provider = "postgresql"
 }
 
-        
+enum UserRole {
+  Admin
+  Instructor
+  Student
+}
+
 model User {
-  id    Int     @id @default(autoincrement())
-  email String  @unique
-  name  String?
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  name      String
+  passwordHash String
+  role      UserRole  @default(Student)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
