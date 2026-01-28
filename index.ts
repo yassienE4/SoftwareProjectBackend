@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import cors from "cors";
 import { checkDb } from "./lib/db-check";
 import { signup, login } from "./services/AuthService";
 
@@ -6,6 +7,7 @@ const app = express();
 const PORT = 8080;
 
 // Middleware
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -17,7 +19,7 @@ app.use((req, res, next) => {
 });
 
 // Auth Routes
-app.post("/auth/signup", async (req: Request, res: Response) => {
+app.post("/api/auth/signup", async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const { email, name, password, role } = body;
@@ -36,7 +38,7 @@ app.post("/auth/signup", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/auth/login", async (req: Request, res: Response) => {
+app.post("/api/auth/login", async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const { email, password } = body;
