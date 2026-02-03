@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { generateTokens, TokenResponse } from "../lib/jwt";
 import * as crypto from "crypto";
 
 export interface SignupRequest {
@@ -20,6 +21,12 @@ export interface AuthResponse {
   role: string;
 }
 
+export interface AuthResponseWithToken extends AuthResponse {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn: number;
+}
+
 /**
  * Hash password using SHA-256
  */
@@ -37,7 +44,9 @@ function verifyPassword(password: string, hash: string): boolean {
 /**
  * Sign up a new user
  */
-export async function signup(data: SignupRequest): Promise<AuthResponse> {
+export async function signup(
+  data: SignupRequest
+): Promise<AuthResponseWithToken> {
   const { email, name, password, role = "Student" } = data;
 
   // Check if user already exists
@@ -62,18 +71,26 @@ export async function signup(data: SignupRequest): Promise<AuthResponse> {
     },
   });
 
+  // Generate tokens
+  const tokens = generateTokens({
+    id: user.id,
+    email: user.email,
+    role: user.role,
+  });
+
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
+    ...tokens,
   };
 }
 
 /**
  * Log in a user
  */
-export async function login(data: LoginRequest): Promise<AuthResponse> {
+export async function login(data: LoginRequest): Promise<AuthResponseWithToken> {
   const { email, password } = data;
 
   // Find user by email
@@ -90,10 +107,18 @@ export async function login(data: LoginRequest): Promise<AuthResponse> {
     throw new Error("Invalid email or password");
   }
 
+  // Generate tokens
+  const tokens = generateTokens({
+    id: user.id,
+    email: user.email,
+    role: user.role,
+  });
+
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
+    ...tokens,
   };
 }

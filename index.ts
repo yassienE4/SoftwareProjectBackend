@@ -2,6 +2,8 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import { checkDb } from "./lib/db-check";
 import { signup, login } from "./services/AuthService";
+import { authenticateToken, authorizeRole, AuthRequest } from "./lib/auth-middleware";
+import { refreshAccessToken } from "./lib/jwt";
 
 const app = express();
 const PORT = 8080;
@@ -59,6 +61,45 @@ app.post("/api/auth/login", async (req: Request, res: Response) => {
 
 app.get("/api/home", (req: Request, res: Response) => {
   res.json({ message: "Welcome to the Home API!" });
+});
+
+// Protected route example - requires authentication
+app.get("/api/profile", authenticateToken, (req: AuthRequest, res: Response) => {
+  res.json({
+    message: "This is your profile",
+    user: req.user,
+  });
+});
+
+// Protected route example - requires Admin role
+app.get(
+  "/api/admin/dashboard",
+  authenticateToken,
+  authorizeRole("Admin"),
+  (req: AuthRequest, res: Response) => {
+    res.json({
+      message: "Welcome to admin dashboard",
+      admin: req.user,
+    });
+  }
+);
+
+// Refresh token endpoint
+app.post("/api/auth/refresh", (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      res.status(400).json({ error: "Refresh token required" });
+      return;
+    }
+
+    const tokens = refreshAccessToken(refreshToken);
+    res.status(200).json({ success: true, data: tokens });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Token refresh failed";
+    res.status(401).json({ error: message });
+  }
 });
 
 async function start() {
