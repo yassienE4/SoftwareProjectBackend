@@ -1,31 +1,12 @@
 import { prisma } from "../lib/prisma";
 import { generateTokens, TokenResponse } from "../lib/jwt";
 import * as crypto from "crypto";
-
-export interface SignupRequest {
-  email: string;
-  name: string;
-  password: string;
-  role?: "Admin" | "Instructor" | "Student";
-}
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface AuthResponse {
-  id: number;
-  email: string;
-  name: string;
-  role: string;
-}
-
-export interface AuthResponseWithToken extends AuthResponse {
-  accessToken: string;
-  refreshToken?: string;
-  expiresIn: number;
-}
+import {
+  SignupRequest,
+  LoginRequest,
+  AuthResponse,
+  AuthResponseWithToken,
+} from "../models/Auth";
 
 /**
  * Hash password using SHA-256
