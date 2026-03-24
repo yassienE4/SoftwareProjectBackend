@@ -14,12 +14,85 @@ enum UserRole {
   Student
 }
 
+enum ExamStatus {
+  Draft
+  Published
+  Closed
+}
+
+enum QuestionType {
+  MCQ
+  TrueFalse
+}
+
+enum AttemptStatus {
+  InProgress
+  Submitted
+}
+
 model User {
-  id        Int       @id @default(autoincrement())
-  email     String    @unique
-  name      String
+  id           Int            @id @default(autoincrement())
+  email        String         @unique
+  name         String
   passwordHash String
-  role      UserRole  @default(Student)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  role         UserRole       @default(Student)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  exams        Exam[]         @relation("InstructorExams")
+  examAttempts ExamAttempt[]  @relation("StudentExamAttempts")
+}
+
+model Exam {
+  id                Int           @id @default(autoincrement())
+  title             String
+  description       String?
+  instructorId      Int
+  instructor        User          @relation("InstructorExams", fields: [instructorId], references: [id], onDelete: Restrict)
+  durationMinutes   Int
+  availabilityStart DateTime?
+  availabilityEnd   DateTime?
+  status            ExamStatus    @default(Draft)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  questions         Question[]
+  attempts          ExamAttempt[]
+
+  @@index([instructorId])
+  @@index([status])
+}
+
+model Question {
+  id           Int          @id @default(autoincrement())
+  examId       Int
+  exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  order        Int
+  type         QuestionType
+  questionText String
+  options      String[]
+  correctAnswer String
+  points       Int          @default(1)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([examId, order])
+  @@index([examId])
+}
+
+model ExamAttempt {
+  id          Int            @id @default(autoincrement())
+  examId      Int
+  exam        Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId   Int
+  student     User           @relation("StudentExamAttempts", fields: [studentId], references: [id], onDelete: Restrict)
+  status      AttemptStatus  @default(InProgress)
+  answers     Json?
+  score       Float?
+  startedAt   DateTime       @default(now())
+  submittedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([examId, studentId])
+  @@index([examId])
+  @@index([studentId])
 }

@@ -1,4 +1,4 @@
-import { UserRole } from "@prisma/client";
+import { UserRole } from "../generated/prisma/client";
 import { CreateUserData, UpdateUserData, UserResponse } from "../models/User";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
