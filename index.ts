@@ -6,11 +6,45 @@ import { authenticateToken, authorizeRole, AuthRequest } from "./lib/auth-middle
 import { refreshAccessToken } from "./lib/jwt";
 import { UserService } from "./services/UserService";
 import { CreateUserRequest, UpdateUserRequest } from "./models/User";
+import { ExamService } from "./services/ExamService";
+import { QuestionService } from "./services/QuestionService";
+import { ExamAttemptService } from "./services/ExamAttemptService";
 import crypto from "crypto";
 
 const app = express();
 const PORT = 8080;
 const userService = new UserService();
+const examService = new ExamService();
+const questionService = new QuestionService();
+const examAttemptService = new ExamAttemptService();
+
+function toDate(value: unknown): Date | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsedDate = new Date(String(value));
+  if (Number.isNaN(parsedDate.getTime())) {
+    return undefined;
+  }
+
+  return parsedDate;
+}
+
+async function loadExamOrFail(examId: number, res: Response) {
+  const exam = await examService.getExamById(examId);
+
+  if (!exam) {
+    res.status(404).json({ error: "Exam not found" });
+    return null;
+  }
+
+  return exam;
+}
+
+function canManageExam(req: AuthRequest, instructorId: number): boolean {
+  return req.user?.role === "Admin" || req.user?.id === instructorId;
+}
 
 // Middleware
 app.use(cors());
@@ -133,7 +167,7 @@ app.get(
   authenticateToken,
   async (req: AuthRequest, res: Response) => {
     try {
-      const userId = parseInt(req.params.id, 10);
+      const userId = parseInt(String(req.params.id), 10);
 
       if (isNaN(userId)) {
         res.status(400).json({ error: "Invalid user ID" });
@@ -201,7 +235,7 @@ app.patch(
   authorizeRole("Admin"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const userId = parseInt(req.params.id, 10);
+      const userId = parseInt(String(req.params.id), 10);
 
       if (isNaN(userId)) {
         res.status(400).json({ error: "Invalid user ID" });
@@ -237,7 +271,7 @@ app.delete(
   authorizeRole("Admin"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const userId = parseInt(req.params.id, 10);
+      const userId = parseInt(String(req.params.id), 10);
 
       if (isNaN(userId)) {
         res.status(400).json({ error: "Invalid user ID" });
@@ -249,6 +283,415 @@ app.delete(
       res.status(200).json({ success: true, message: "User deleted successfully" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to delete user";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+// Exam Management Routes
+
+app.get("/api/exams", authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role === "Admin") {
+      const exams = await examService.getAllExams();
+      res.status(200).json({ success: true, data: exams });
+      return;
+    }
+
+    if (req.user?.role === "Instructor") {
+      const exams = await examService.getAllExams(req.user.id);
+      res.status(200).json({ success: true, data: exams });
+      return;
+    }
+
+    const exams = await examService.getAllExams(undefined, "Published");
+    res.status(200).json({ success: true, data: exams });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to fetch exams";
+    res.status(500).json({ error: message });
+  }
+});
+
+app.post(
+  "/api/exams",
+  authenticateToken,
+  authorizeRole("Instructor", "Admin"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const body = req.body || {};
+      const title = body.title;
+      const durationMinutes = Number(body.durationMinutes);
+
+      if (!title || !durationMinutes || Number.isNaN(durationMinutes)) {
+        res.status(400).json({ error: "Title and durationMinutes are required" });
+        return;
+      }
+
+      const exam = await examService.createExam({
+        title,
+        description: body.description,
+        instructorId:
+          req.user?.role === "Admin" && body.instructorId
+            ? Number(body.instructorId)
+            : req.user?.id ?? 0,
+        durationMinutes,
+        availabilityStart: toDate(body.availabilityStart),
+        availabilityEnd: toDate(body.availabilityEnd),
+        status: body.status,
+      });
+
+      res.status(201).json({ success: true, data: exam });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create exam";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+app.get("/api/exams/:id", authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const examId = parseInt(String(req.params.id), 10);
+
+    if (Number.isNaN(examId)) {
+      res.status(400).json({ error: "Invalid exam ID" });
+      return;
+    }
+
+    const exam = await loadExamOrFail(examId, res);
+    if (!exam) {
+      return;
+    }
+
+    if (req.user?.role === "Student" && exam.status !== "Published") {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+
+    if (req.user?.role === "Instructor" && !canManageExam(req, exam.instructorId)) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+
+    res.status(200).json({ success: true, data: exam });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to fetch exam";
+    res.status(500).json({ error: message });
+  }
+});
+
+app.patch(
+  "/api/exams/:id",
+  authenticateToken,
+  authorizeRole("Instructor", "Admin"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const examId = parseInt(String(req.params.id), 10);
+
+      if (Number.isNaN(examId)) {
+        res.status(400).json({ error: "Invalid exam ID" });
+        return;
+      }
+
+      const existingExam = await loadExamOrFail(examId, res);
+      if (!existingExam) {
+        return;
+      }
+
+      if (!canManageExam(req, existingExam.instructorId)) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+
+      const body = req.body || {};
+      const exam = await examService.updateExam(examId, {
+        ...(body.title !== undefined && { title: body.title }),
+        ...(body.description !== undefined && { description: body.description }),
+        ...(body.durationMinutes !== undefined && { durationMinutes: Number(body.durationMinutes) }),
+        ...(body.availabilityStart !== undefined && { availabilityStart: toDate(body.availabilityStart) ?? null }),
+        ...(body.availabilityEnd !== undefined && { availabilityEnd: toDate(body.availabilityEnd) ?? null }),
+        ...(body.status !== undefined && { status: body.status }),
+      });
+
+      res.status(200).json({ success: true, data: exam });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update exam";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+app.delete(
+  "/api/exams/:id",
+  authenticateToken,
+  authorizeRole("Instructor", "Admin"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const examId = parseInt(String(req.params.id), 10);
+
+      if (Number.isNaN(examId)) {
+        res.status(400).json({ error: "Invalid exam ID" });
+        return;
+      }
+
+      const existingExam = await loadExamOrFail(examId, res);
+      if (!existingExam) {
+        return;
+      }
+
+      if (!canManageExam(req, existingExam.instructorId)) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+
+      await examService.deleteExam(examId);
+      res.status(200).json({ success: true, message: "Exam deleted successfully" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete exam";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+// Nested question management: /api/exams/:id/questions
+
+app.get("/api/exams/:id/questions", authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const examId = parseInt(String(req.params.id), 10);
+
+    if (Number.isNaN(examId)) {
+      res.status(400).json({ error: "Invalid exam ID" });
+      return;
+    }
+
+    const exam = await loadExamOrFail(examId, res);
+    if (!exam) {
+      return;
+    }
+
+    if (req.user?.role === "Student" && exam.status !== "Published") {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+
+    if (req.user?.role === "Instructor" && !canManageExam(req, exam.instructorId)) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+
+    const questions = await questionService.getQuestionsByExamId(examId);
+    res.status(200).json({ success: true, data: questions });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to fetch questions";
+    res.status(500).json({ error: message });
+  }
+});
+
+app.post(
+  "/api/exams/:id/questions",
+  authenticateToken,
+  authorizeRole("Instructor", "Admin"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const examId = parseInt(String(req.params.id), 10);
+
+      if (Number.isNaN(examId)) {
+        res.status(400).json({ error: "Invalid exam ID" });
+        return;
+      }
+
+      const exam = await loadExamOrFail(examId, res);
+      if (!exam) {
+        return;
+      }
+
+      if (!canManageExam(req, exam.instructorId)) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+
+      const body = req.body || {};
+      const question = await questionService.createQuestion({
+        examId,
+        order: Number(body.order),
+        type: body.type,
+        questionText: body.questionText,
+        options: Array.isArray(body.options) ? body.options : [],
+        correctAnswer: body.correctAnswer,
+        points: body.points !== undefined ? Number(body.points) : undefined,
+      });
+
+      res.status(201).json({ success: true, data: question });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create question";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+app.patch(
+  "/api/exams/:id/questions/:questionId",
+  authenticateToken,
+  authorizeRole("Instructor", "Admin"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const examId = parseInt(String(req.params.id), 10);
+      const questionId = parseInt(String(req.params.questionId), 10);
+
+      if (Number.isNaN(examId) || Number.isNaN(questionId)) {
+        res.status(400).json({ error: "Invalid exam or question ID" });
+        return;
+      }
+
+      const exam = await loadExamOrFail(examId, res);
+      if (!exam) {
+        return;
+      }
+
+      if (!canManageExam(req, exam.instructorId)) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+
+      const existingQuestion = await questionService.getQuestionById(questionId);
+      if (!existingQuestion || existingQuestion.examId !== examId) {
+        res.status(404).json({ error: "Question not found" });
+        return;
+      }
+
+      const body = req.body || {};
+      const question = await questionService.updateQuestion(questionId, {
+        ...(body.order !== undefined && { order: Number(body.order) }),
+        ...(body.type !== undefined && { type: body.type }),
+        ...(body.questionText !== undefined && { questionText: body.questionText }),
+        ...(body.options !== undefined && { options: body.options }),
+        ...(body.correctAnswer !== undefined && { correctAnswer: body.correctAnswer }),
+        ...(body.points !== undefined && { points: Number(body.points) }),
+      });
+
+      res.status(200).json({ success: true, data: question });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update question";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+app.delete(
+  "/api/exams/:id/questions/:questionId",
+  authenticateToken,
+  authorizeRole("Instructor", "Admin"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const examId = parseInt(String(req.params.id), 10);
+      const questionId = parseInt(String(req.params.questionId), 10);
+
+      if (Number.isNaN(examId) || Number.isNaN(questionId)) {
+        res.status(400).json({ error: "Invalid exam or question ID" });
+        return;
+      }
+
+      const exam = await loadExamOrFail(examId, res);
+      if (!exam) {
+        return;
+      }
+
+      if (!canManageExam(req, exam.instructorId)) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+
+      const existingQuestion = await questionService.getQuestionById(questionId);
+      if (!existingQuestion || existingQuestion.examId !== examId) {
+        res.status(404).json({ error: "Question not found" });
+        return;
+      }
+
+      await questionService.deleteQuestion(questionId);
+      res.status(200).json({ success: true, message: "Question deleted successfully" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete question";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+// Student exam attempts
+
+app.post(
+  "/api/exams/:id/start",
+  authenticateToken,
+  authorizeRole("Student"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const examId = parseInt(String(req.params.id), 10);
+
+      if (Number.isNaN(examId)) {
+        res.status(400).json({ error: "Invalid exam ID" });
+        return;
+      }
+
+      const exam = await loadExamOrFail(examId, res);
+      if (!exam) {
+        return;
+      }
+
+      const now = new Date();
+      if (exam.status !== "Published") {
+        res.status(403).json({ error: "Exam is not available" });
+        return;
+      }
+
+      if (exam.availabilityStart && now < exam.availabilityStart) {
+        res.status(403).json({ error: "Exam has not opened yet" });
+        return;
+      }
+
+      if (exam.availabilityEnd && now > exam.availabilityEnd) {
+        res.status(403).json({ error: "Exam has closed" });
+        return;
+      }
+
+      const attempt = await examAttemptService.startAttempt({
+        examId,
+        studentId: req.user?.id ?? 0,
+      });
+
+      res.status(201).json({ success: true, data: attempt });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to start attempt";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+app.post(
+  "/api/exams/:id/submit",
+  authenticateToken,
+  authorizeRole("Student"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const examId = parseInt(String(req.params.id), 10);
+
+      if (Number.isNaN(examId)) {
+        res.status(400).json({ error: "Invalid exam ID" });
+        return;
+      }
+
+      const body = req.body || {};
+      if (!body.answers || typeof body.answers !== "object") {
+        res.status(400).json({ error: "answers are required" });
+        return;
+      }
+
+      const attempt = await examAttemptService.submitAttemptForExam(
+        examId,
+        req.user?.id ?? 0,
+        body.answers
+      );
+
+      res.status(200).json({ success: true, data: attempt });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to submit attempt";
       res.status(400).json({ error: message });
     }
   }

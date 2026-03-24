@@ -1,5 +1,10 @@
 import { prisma } from "../lib/prisma";
-import { CreateExamData, ExamResponse, UpdateExamData } from "../models/Exam";
+import {
+  CreateExamData,
+  ExamResponse,
+  ExamStatus,
+  UpdateExamData,
+} from "../models/Exam";
 
 function toExamResponse(exam: any): ExamResponse {
   return {
@@ -17,9 +22,17 @@ function toExamResponse(exam: any): ExamResponse {
 }
 
 export class ExamService {
-  async getAllExams(instructorId?: number): Promise<ExamResponse[]> {
+  async getAllExams(
+    instructorId?: number,
+    status?: ExamStatus
+  ): Promise<ExamResponse[]> {
+    const where = {
+      ...(instructorId !== undefined && { instructorId }),
+      ...(status !== undefined && { status }),
+    };
+
     const exams = await prisma.exam.findMany({
-      where: instructorId ? { instructorId } : undefined,
+      where: Object.keys(where).length > 0 ? where : undefined,
       orderBy: { createdAt: "desc" },
     });
 

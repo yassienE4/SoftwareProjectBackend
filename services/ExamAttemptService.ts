@@ -125,6 +125,66 @@ export class ExamAttemptService {
     return toExamAttemptResponse(updatedAttempt);
   }
 
+  async submitAttemptForExam(
+    examId: number,
+    studentId: number,
+    answers: ExamAnswers
+  ): Promise<ExamAttemptResponse> {
+    const attempt = await prisma.examAttempt.findUnique({
+      where: {
+        examId_studentId: {
+          examId,
+          studentId,
+        },
+      },
+      include: {
+        exam: {
+          include: {
+            questions: true,
+          },
+        },
+      },
+    });
+
+    if (!attempt) {
+      throw new Error("Attempt not found");
+    }
+
+    if (attempt.status === "Submitted") {
+      throw new Error("Attempt already submitted");
+    }
+
+    const score = calculateScore(attempt.exam.questions, answers);
+
+    const updatedAttempt = await prisma.examAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        status: "Submitted",
+        answers,
+        score,
+        submittedAt: new Date(),
+      },
+    });
+
+    return toExamAttemptResponse(updatedAttempt);
+  }
+
+  async getAttemptByExamAndStudent(
+    examId: number,
+    studentId: number
+  ): Promise<ExamAttemptResponse | null> {
+    const attempt = await prisma.examAttempt.findUnique({
+      where: {
+        examId_studentId: {
+          examId,
+          studentId,
+        },
+      },
+    });
+
+    return attempt ? toExamAttemptResponse(attempt) : null;
+  }
+
   async updateAttempt(id: number, data: UpdateExamAttemptData): Promise<ExamAttemptResponse> {
     const existingAttempt = await prisma.examAttempt.findUnique({
       where: { id },
