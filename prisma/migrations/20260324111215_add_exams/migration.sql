@@ -30,7 +30,7 @@ CREATE TABLE "Question" (
     "order" INTEGER NOT NULL,
     "type" "QuestionType" NOT NULL,
     "questionText" TEXT NOT NULL,
-    "options" TEXT[] NOT NULL,
+    "options" TEXT[],
     "correctAnswer" TEXT NOT NULL,
     "points" INTEGER NOT NULL DEFAULT 1,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
