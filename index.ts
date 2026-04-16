@@ -7,6 +7,7 @@ import { refreshAccessToken } from "./lib/jwt";
 import { UserService } from "./services/UserService";
 import { CreateUserRequest, UpdateUserRequest } from "./models/User";
 import { ExamService } from "./services/ExamService";
+import { CourseService } from "./services/CourseService";
 import { QuestionService } from "./services/QuestionService";
 import { ExamAttemptService } from "./services/ExamAttemptService";
 import crypto from "crypto";
@@ -15,6 +16,7 @@ const app = express();
 const PORT = 8080;
 const userService = new UserService();
 const examService = new ExamService();
+const courseService = new CourseService();
 const questionService = new QuestionService();
 const examAttemptService = new ExamAttemptService();
 
@@ -44,6 +46,14 @@ async function loadExamOrFail(examId: number, res: Response) {
 
 function canManageExam(req: AuthRequest, instructorId: number): boolean {
   return req.user?.role === "Admin" || req.user?.id === instructorId;
+}
+
+async function canStudentAccessExam(exam: { courseId: number; status: string }, studentId: number) {
+  if (exam.status !== "Published") {
+    return false;
+  }
+
+  return courseService.isUserEnrolled(exam.courseId, studentId);
 }
 
 // Middleware
@@ -288,6 +298,132 @@ app.delete(
   }
 );
 
+// Course Management Routes
+
+app.get(
+  "/api/courses",
+  authenticateToken,
+  authorizeRole("Admin"),
+  async (_req: AuthRequest, res: Response) => {
+    try {
+      const courses = await courseService.getAllCourses();
+      res.status(200).json({ success: true, data: courses });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to fetch courses";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+app.get("/api/courses/me", authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    const courses = await courseService.getCoursesForUser(userId);
+    res.status(200).json({ success: true, data: courses });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to fetch courses";
+    res.status(500).json({ error: message });
+  }
+});
+
+app.post(
+  "/api/courses",
+  authenticateToken,
+  authorizeRole("Admin"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const body = req.body || {};
+      const code = String(body.code || "").trim();
+      const name = String(body.name || "").trim();
+
+      if (!code || !name) {
+        res.status(400).json({ error: "code and name are required" });
+        return;
+      }
+
+      const course = await courseService.createCourse({
+        code,
+        name,
+        description: body.description,
+      });
+
+      res.status(201).json({ success: true, data: course });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create course";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+app.post(
+  "/api/courses/:id/enrollments",
+  authenticateToken,
+  authorizeRole("Admin"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const courseId = parseInt(String(req.params.id), 10);
+
+      if (Number.isNaN(courseId)) {
+        res.status(400).json({ error: "Invalid course ID" });
+        return;
+      }
+
+      const body = req.body || {};
+      const userIds = Array.isArray(body.userIds)
+        ? body.userIds
+            .map((value: unknown) => Number(value))
+            .filter((value: number) => !Number.isNaN(value))
+        : body.userId !== undefined
+          ? [Number(body.userId)]
+          : [];
+
+      if (userIds.length === 0) {
+        res.status(400).json({ error: "userId or userIds are required" });
+        return;
+      }
+
+      const enrollments = [];
+      for (const userId of userIds) {
+        enrollments.push(await courseService.enrollUser({ courseId, userId }));
+      }
+
+      res.status(201).json({ success: true, data: enrollments });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to enroll user";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
+app.delete(
+  "/api/courses/:id/enrollments/:userId",
+  authenticateToken,
+  authorizeRole("Admin"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const courseId = parseInt(String(req.params.id), 10);
+      const userId = parseInt(String(req.params.userId), 10);
+
+      if (Number.isNaN(courseId) || Number.isNaN(userId)) {
+        res.status(400).json({ error: "Invalid course or user ID" });
+        return;
+      }
+
+      await courseService.unenrollUser(courseId, userId);
+      res.status(200).json({ success: true, message: "User unenrolled successfully" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to unenroll user";
+      res.status(400).json({ error: message });
+    }
+  }
+);
+
 // Exam Management Routes
 
 app.get("/api/exams", authenticateToken, async (req: AuthRequest, res: Response) => {
@@ -299,12 +435,15 @@ app.get("/api/exams", authenticateToken, async (req: AuthRequest, res: Response)
     }
 
     if (req.user?.role === "Instructor") {
-      const exams = await examService.getAllExams(req.user.id);
+      const exams = await examService.getAllExams({ instructorId: req.user.id });
       res.status(200).json({ success: true, data: exams });
       return;
     }
 
-    const exams = await examService.getAllExams(undefined, "Published");
+    const exams = await examService.getAllExams({
+      status: "Published",
+      studentId: req.user?.id,
+    });
     res.status(200).json({ success: true, data: exams });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fetch exams";
@@ -321,19 +460,44 @@ app.post(
       const body = req.body || {};
       const title = body.title;
       const durationMinutes = Number(body.durationMinutes);
+      const courseId = Number(body.courseId);
 
-      if (!title || !durationMinutes || Number.isNaN(durationMinutes)) {
-        res.status(400).json({ error: "Title and durationMinutes are required" });
+      if (!title || !durationMinutes || Number.isNaN(durationMinutes) || Number.isNaN(courseId)) {
+        res.status(400).json({ error: "Title, durationMinutes, and courseId are required" });
         return;
+      }
+
+      const instructorId =
+        req.user?.role === "Admin"
+          ? Number(body.instructorId)
+          : req.user?.id ?? 0;
+
+      if (req.user?.role === "Admin" && Number.isNaN(instructorId)) {
+        res.status(400).json({ error: "instructorId is required for admin exam creation" });
+        return;
+      }
+
+      if (req.user?.role === "Instructor") {
+        const enrolled = await courseService.isUserEnrolled(courseId, req.user.id);
+        if (!enrolled) {
+          res.status(403).json({ error: "Access denied" });
+          return;
+        }
+      }
+
+      if (req.user?.role === "Admin") {
+        const enrolled = await courseService.isUserEnrolled(courseId, instructorId);
+        if (!enrolled) {
+          res.status(403).json({ error: "Assigned instructor is not enrolled in this course" });
+          return;
+        }
       }
 
       const exam = await examService.createExam({
         title,
         description: body.description,
-        instructorId:
-          req.user?.role === "Admin" && body.instructorId
-            ? Number(body.instructorId)
-            : req.user?.id ?? 0,
+        courseId,
+        instructorId,
         durationMinutes,
         availabilityStart: toDate(body.availabilityStart),
         availabilityEnd: toDate(body.availabilityEnd),
@@ -362,9 +526,12 @@ app.get("/api/exams/:id", authenticateToken, async (req: AuthRequest, res: Respo
       return;
     }
 
-    if (req.user?.role === "Student" && exam.status !== "Published") {
-      res.status(403).json({ error: "Access denied" });
-      return;
+    if (req.user?.role === "Student") {
+      const canAccess = await canStudentAccessExam(exam, req.user.id);
+      if (!canAccess) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
     }
 
     if (req.user?.role === "Instructor" && !canManageExam(req, exam.instructorId)) {
@@ -403,9 +570,25 @@ app.patch(
       }
 
       const body = req.body || {};
+      const nextCourseId = body.courseId !== undefined ? Number(body.courseId) : undefined;
+
+      if (nextCourseId !== undefined && Number.isNaN(nextCourseId)) {
+        res.status(400).json({ error: "Invalid course ID" });
+        return;
+      }
+
+      if (req.user?.role === "Instructor" && nextCourseId !== undefined) {
+        const enrolled = await courseService.isUserEnrolled(nextCourseId, req.user.id);
+        if (!enrolled) {
+          res.status(403).json({ error: "Access denied" });
+          return;
+        }
+      }
+
       const exam = await examService.updateExam(examId, {
         ...(body.title !== undefined && { title: body.title }),
         ...(body.description !== undefined && { description: body.description }),
+        ...(nextCourseId !== undefined && { courseId: nextCourseId }),
         ...(body.durationMinutes !== undefined && { durationMinutes: Number(body.durationMinutes) }),
         ...(body.availabilityStart !== undefined && { availabilityStart: toDate(body.availabilityStart) ?? null }),
         ...(body.availabilityEnd !== undefined && { availabilityEnd: toDate(body.availabilityEnd) ?? null }),
@@ -468,9 +651,12 @@ app.get("/api/exams/:id/questions", authenticateToken, async (req: AuthRequest, 
       return;
     }
 
-    if (req.user?.role === "Student" && exam.status !== "Published") {
-      res.status(403).json({ error: "Access denied" });
-      return;
+    if (req.user?.role === "Student") {
+      const canAccess = await canStudentAccessExam(exam, req.user.id);
+      if (!canAccess) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
     }
 
     if (req.user?.role === "Instructor" && !canManageExam(req, exam.instructorId)) {
@@ -636,7 +822,8 @@ app.post(
       }
 
       const now = new Date();
-      if (exam.status !== "Published") {
+      const canAccess = await canStudentAccessExam(exam, req.user?.id ?? 0);
+      if (!canAccess) {
         res.status(403).json({ error: "Exam is not available" });
         return;
       }

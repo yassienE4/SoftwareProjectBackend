@@ -40,12 +40,40 @@ model User {
   updatedAt    DateTime       @updatedAt
   exams        Exam[]         @relation("InstructorExams")
   examAttempts ExamAttempt[]  @relation("StudentExamAttempts")
+  courseEnrollments CourseEnrollment[]
+}
+
+model Course {
+  id          Int                  @id @default(autoincrement())
+  code        String               @unique
+  name        String
+  description String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  exams       Exam[]
+  enrollments CourseEnrollment[]
+}
+
+model CourseEnrollment {
+  id        Int      @id @default(autoincrement())
+  courseId  Int
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([courseId, userId])
+  @@index([courseId])
+  @@index([userId])
 }
 
 model Exam {
   id                Int           @id @default(autoincrement())
   title             String
   description       String?
+  courseId          Int
+  course            Course        @relation(fields: [courseId], references: [id], onDelete: Restrict)
   instructorId      Int
   instructor        User          @relation("InstructorExams", fields: [instructorId], references: [id], onDelete: Restrict)
   durationMinutes   Int
@@ -57,6 +85,7 @@ model Exam {
   questions         Question[]
   attempts          ExamAttempt[]
 
+  @@index([courseId])
   @@index([instructorId])
   @@index([status])
 }

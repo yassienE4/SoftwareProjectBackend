@@ -2,6 +2,8 @@
 
 Frontend: https://github.com/yassienE4/SoftwareProjectFrontend
 
+Exams are now course-scoped: admins create courses and enroll instructors/students, and instructors select a course when creating an exam.
+
 run project: npm run dev (also do "npm install" if its your first time)
 
 save db changes: npx prisma migrate dev --name (put a name)

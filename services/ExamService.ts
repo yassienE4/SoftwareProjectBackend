@@ -11,6 +11,7 @@ function toExamResponse(exam: any): ExamResponse {
     id: exam.id,
     title: exam.title,
     description: exam.description,
+    courseId: exam.courseId,
     instructorId: exam.instructorId,
     durationMinutes: exam.durationMinutes,
     availabilityStart: exam.availabilityStart,
@@ -22,13 +23,24 @@ function toExamResponse(exam: any): ExamResponse {
 }
 
 export class ExamService {
-  async getAllExams(
-    instructorId?: number,
-    status?: ExamStatus
-  ): Promise<ExamResponse[]> {
+  async getAllExams(filters: {
+    instructorId?: number;
+    status?: ExamStatus;
+    studentId?: number;
+  } = {}): Promise<ExamResponse[]> {
+    const { instructorId, status, studentId } = filters;
     const where = {
       ...(instructorId !== undefined && { instructorId }),
       ...(status !== undefined && { status }),
+      ...(studentId !== undefined && {
+        course: {
+          enrollments: {
+            some: {
+              userId: studentId,
+            },
+          },
+        },
+      }),
     };
 
     const exams = await prisma.exam.findMany({
@@ -48,6 +60,14 @@ export class ExamService {
   }
 
   async createExam(data: CreateExamData): Promise<ExamResponse> {
+    const course = await prisma.course.findUnique({
+      where: { id: data.courseId },
+    });
+
+    if (!course) {
+      throw new Error("Course not found");
+    }
+
     const instructor = await prisma.user.findUnique({
       where: { id: data.instructorId },
     });
@@ -64,6 +84,7 @@ export class ExamService {
       data: {
         title: data.title,
         description: data.description,
+        courseId: data.courseId,
         instructorId: data.instructorId,
         durationMinutes: data.durationMinutes,
         availabilityStart: data.availabilityStart,
@@ -84,11 +105,22 @@ export class ExamService {
       throw new Error("Exam not found");
     }
 
+    if (data.courseId !== undefined) {
+      const course = await prisma.course.findUnique({
+        where: { id: data.courseId },
+      });
+
+      if (!course) {
+        throw new Error("Course not found");
+      }
+    }
+
     const exam = await prisma.exam.update({
       where: { id },
       data: {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.description !== undefined && { description: data.description }),
+        ...(data.courseId !== undefined && { courseId: data.courseId }),
         ...(data.durationMinutes !== undefined && { durationMinutes: data.durationMinutes }),
         ...(data.availabilityStart !== undefined && { availabilityStart: data.availabilityStart }),
         ...(data.availabilityEnd !== undefined && { availabilityEnd: data.availabilityEnd }),

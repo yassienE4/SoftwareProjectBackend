@@ -40,6 +40,17 @@ export class ExamAttemptService {
   async startAttempt(data: CreateExamAttemptData): Promise<ExamAttemptResponse> {
     const exam = await prisma.exam.findUnique({
       where: { id: data.examId },
+      include: {
+        course: {
+          include: {
+            enrollments: {
+              where: {
+                userId: data.studentId,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!exam) {
@@ -56,6 +67,10 @@ export class ExamAttemptService {
 
     if (student.role !== "Student") {
       throw new Error("Only students can start exam attempts");
+    }
+
+    if (exam.course.enrollments.length === 0) {
+      throw new Error("Access denied");
     }
 
     const existingAttempt = await prisma.examAttempt.findUnique({
@@ -141,6 +156,15 @@ export class ExamAttemptService {
         exam: {
           include: {
             questions: true,
+            course: {
+              include: {
+                enrollments: {
+                  where: {
+                    userId: studentId,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -152,6 +176,10 @@ export class ExamAttemptService {
 
     if (attempt.status === "Submitted") {
       throw new Error("Attempt already submitted");
+    }
+
+    if (attempt.exam.course.enrollments.length === 0) {
+      throw new Error("Access denied");
     }
 
     const score = calculateScore(attempt.exam.questions, answers);

@@ -4,6 +4,7 @@ export interface Exam {
   id: number;
   title: string;
   description: string | null;
+  courseId: number;
   instructorId: number;
   durationMinutes: number;
   availabilityStart: Date | null;
@@ -16,6 +17,7 @@ export interface Exam {
 export interface CreateExamData {
   title: string;
   description?: string;
+  courseId: number;
   instructorId: number;
   durationMinutes: number;
   availabilityStart?: Date;
@@ -26,6 +28,7 @@ export interface CreateExamData {
 export interface UpdateExamData {
   title?: string;
   description?: string;
+  courseId?: number;
   durationMinutes?: number;
   availabilityStart?: Date | null;
   availabilityEnd?: Date | null;
@@ -36,6 +39,7 @@ export interface ExamResponse {
   id: number;
   title: string;
   description: string | null;
+  courseId: number;
   instructorId: number;
   durationMinutes: number;
   availabilityStart: Date | null;
