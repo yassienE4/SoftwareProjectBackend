@@ -21,4 +21,28 @@ export interface UpdateUserData {
   email?: string;
   name?: string;
   role?: UserRole;
+  password?: string; // Admin can update user password
+}
+
+export interface UserResponse {
+  id: number;
+  email: string;
+  name: string;
+  role: UserRole;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateUserRequest {
+  email: string;
+  name: string;
+  password: string;
+  role?: UserRole; // Optional, defaults to Student
+}
+
+export interface UpdateUserRequest {
+  email?: string;
+  name?: string;
+  role?: UserRole;
+  password?: string;
 }

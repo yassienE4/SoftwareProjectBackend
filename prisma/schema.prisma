@@ -1,85 +1,127 @@
+
 generator client {
-provider = "prisma-client"
-output   = "../generated/prisma"
+  provider = "prisma-client"
+  output   = "../generated/prisma"
 }
 
 datasource db {
-provider = "postgresql"
+  provider = "postgresql"
 }
 
 enum UserRole {
-Admin
-Instructor
-Student
+  Admin
+  Instructor
+  Student
+}
+
+enum ExamStatus {
+  Draft
+  Published
+  Closed
+}
+
+enum QuestionType {
+  MCQ
+  TrueFalse
+}
+
+enum AttemptStatus {
+  InProgress
+  Submitted
 }
 
 model User {
-id           Int        @id @default(autoincrement())
-email        String     @unique
-name         String
-passwordHash String
-role         UserRole   @default(Student)
-createdAt    DateTime   @default(now())
-updatedAt    DateTime   @updatedAt
+  id           Int            @id @default(autoincrement())
+  email        String         @unique
+  name         String
+  passwordHash String
+  role         UserRole       @default(Student)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  exams        Exam[]         @relation("InstructorExams")
+  examAttempts ExamAttempt[]  @relation("StudentExamAttempts")
+  courseEnrollments CourseEnrollment[]
+}
 
-examsCreated Exam[]
-attempts     Attempt[]
+model Course {
+  id          Int                  @id @default(autoincrement())
+  code        String               @unique
+  name        String
+  description String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  exams       Exam[]
+  enrollments CourseEnrollment[]
+}
+
+model CourseEnrollment {
+  id        Int      @id @default(autoincrement())
+  courseId  Int
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([courseId, userId])
+  @@index([courseId])
+  @@index([userId])
 }
 
 model Exam {
-id           Int        @id @default(autoincrement())
-title        String
-description  String?
-duration     Int
-createdAt    DateTime   @default(now())
+  id                Int           @id @default(autoincrement())
+  title             String
+  description       String?
+  courseId          Int
+  course            Course        @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  instructorId      Int
+  instructor        User          @relation("InstructorExams", fields: [instructorId], references: [id], onDelete: Restrict)
+  durationMinutes   Int
+  availabilityStart DateTime?
+  availabilityEnd   DateTime?
+  status            ExamStatus    @default(Draft)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  questions         Question[]
+  attempts          ExamAttempt[]
 
-instructorId Int
-instructor   User       @relation(fields: [instructorId], references: [id])
-
-questions    Question[]
-attempts     Attempt[]
+  @@index([courseId])
+  @@index([instructorId])
+  @@index([status])
 }
 
 model Question {
-id            Int      @id @default(autoincrement())
-text          String
+  id           Int          @id @default(autoincrement())
+  examId       Int
+  exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  order        Int
+  type         QuestionType
+  questionText String
+  options      String[]
+  correctAnswer String
+  points       Int          @default(1)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
-optionA       String
-optionB       String
-optionC       String
-optionD       String
-
-correctAnswer String
-
-examId        Int
-exam          Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  @@unique([examId, order])
+  @@index([examId])
 }
 
-model Attempt {
-id          Int       @id @default(autoincrement())
+model ExamAttempt {
+  id          Int            @id @default(autoincrement())
+  examId      Int
+  exam        Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId   Int
+  student     User           @relation("StudentExamAttempts", fields: [studentId], references: [id], onDelete: Restrict)
+  status      AttemptStatus  @default(InProgress)
+  answers     Json?
+  score       Float?
+  startedAt   DateTime       @default(now())
+  submittedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
-studentId   Int
-student     User      @relation(fields: [studentId], references: [id])
-
-examId      Int
-exam        Exam      @relation(fields: [examId], references: [id])
-
-score       Float     @default(0)
-
-startedAt   DateTime  @default(now())
-submittedAt DateTime?
-
-result      Result?
-}
-
-model Result {
-id          Int       @id @default(autoincrement())
-
-attemptId   Int       @unique
-attempt     Attempt   @relation(fields: [attemptId], references: [id])
-
-score       Float
-passed      Boolean
-
-createdAt   DateTime  @default(now())
+  @@unique([examId, studentId])
+  @@index([examId])
+  @@index([studentId])
 }
